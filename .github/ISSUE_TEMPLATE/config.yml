@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 💬 Questions & ideas / 質問・アイデア
+    url: https://github.com/boice-kazuya/workpilot-releases/discussions
+    about: Ask how to do something, or share what you built. / 使い方の質問や、作ったものの共有はこちらへ。
+  - name: 🌐 Website & docs / 公式サイト・ドキュメント
+    url: https://workpilot.space
+    about: Features, guides, and the download. / 機能紹介・ガイド・ダウンロード。
+  - name: 🔒 Security issue / セキュリティの報告
+    url: https://github.com/boice-kazuya/workpilot-releases/blob/main/SECURITY.md
+    about: Please report privately, not in a public issue. / 公開 Issue ではなく、非公開でご連絡ください。

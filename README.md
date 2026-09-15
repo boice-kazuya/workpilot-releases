@@ -124,7 +124,16 @@ Memory use is tuned for ordinary Macs, not just maxed-out ones.
 
 ## Built in the open, shipped daily
 
-**184 updates in the last 6 weeks.** Bugs reported in the morning are often fixed the same day, and every release ships with plain-language notes about what changed and why.
+**111 public releases in the four weeks since this repo went up** (Aug 19 – Sep 15, 2026). Bugs reported in the morning are often fixed the same day, and every release ships with plain-language notes about what changed and why.
+
+## Get notified when it ships
+
+New builds land most days. Two ways to keep up without checking back:
+
+- **[⭐ Star this repo](https://github.com/boice-kazuya/workpilot-releases)** — new releases surface in your GitHub home feed, and it's the clearest signal that this is worth continuing.
+- **Watch → Custom → Releases** — GitHub emails you the moment a new build is published.
+
+Found a bug or want a feature? [Open an issue](https://github.com/boice-kazuya/workpilot-releases/issues) — same-day fixes are normal. Questions and ideas belong in [Discussions](https://github.com/boice-kazuya/workpilot-releases/discussions).
 
 ## FAQ
 

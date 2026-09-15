@@ -1,0 +1,19 @@
+name: 💡 Feature request / ほしい機能
+description: Suggest something WorkPilot should be able to do. / こんなことができたらいいのに、を教えてください。
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to get done? / どんな作業をしたいですか
+      description: The job, not the solution. It helps us find a better way than you asked for. / 「どう作るか」より「何をしたいか」を書いてください。より良い方法が見つかることがあります。
+    validations:
+      required: true
+  - type: textarea
+    id: today
+    attributes:
+      label: How do you do it today? / いまはどうしていますか
+  - type: textarea
+    id: idea
+    attributes:
+      label: Your idea (optional) / 思いついている案（任意）

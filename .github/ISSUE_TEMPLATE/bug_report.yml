@@ -1,0 +1,50 @@
+name: 🐞 Bug report / 不具合の報告
+description: Something isn't working. Same-day fixes are normal. / うまく動かないところを教えてください。その日のうちに直ることもあります。
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. English or 日本語 — both are fine.
+        日本語でも英語でも大丈夫です。
+  - type: input
+    id: version
+    attributes:
+      label: WorkPilot version / バージョン
+      description: Shown at the bottom of the app window. / アプリ画面の下に出ています。
+      placeholder: "0.3.384"
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version / macOS のバージョン
+      placeholder: "15.5 (Apple Silicon)"
+    validations:
+      required: true
+  - type: dropdown
+    id: engine
+    attributes:
+      label: AI engine in use / 使っていた AI エンジン
+      multiple: true
+      options: [Claude, ChatGPT (Codex), Gemini, Kimi, Not related / 関係ない]
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened / 何が起きましたか
+      description: What you expected, and what you got instead. / 期待した動きと、実際の動きを書いてください。
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce / 再現手順
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+  - type: textarea
+    id: extra
+    attributes:
+      label: Screenshot or log (optional) / スクリーンショット・ログ（任意）
+      description: Drag images in. Please remove API keys and personal paths first. / 画像はドラッグで貼れます。APIキーや個人情報は消してから貼ってください。
