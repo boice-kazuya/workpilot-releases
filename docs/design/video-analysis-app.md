@@ -12,6 +12,7 @@
 |---|---|---|
 | 全体構造 | **エンジン先行（Engine-first）** | UI は薄く、分析エンジンを独立プロセス＋安定API にする。アドオン化は「包み替え」で済む |
 | 実行場所 | **ローカル完結（Mac / Apple Silicon）** | WorkPilot と同じ思想。動画も特徴量も Mac から出さない |
+| 技術スタック | **Electron + Vue 3 / Node エンジン + ffmpeg + Swift ヘルパー** | WorkPilot 本体の実装（§13 で確認済み）に揃える。Python を DMG に同梱しない |
 | AIの使い方 | **信号分析（決定的）と意味分析（LLM/VLM）を分離** | 高価な LLM はキーフレームと要約にだけ使う。サブスク枠を溶かさない |
 | 中心データ | **統一タイムライン（Analysis Bundle）** | すべての分析器が「時刻付きイベント」を同じ形式で出す。ここが資産 |
 | スキルの形 | **SKILL.md（人間可読）＋ recipe.json（機械可読）のペア** | WorkPilot / Claude Code にそのまま取り込める |
@@ -68,20 +69,20 @@
 ```
 ┌─────────────────────────── 専用アプリ（Mac） ───────────────────────────┐
 │                                                                        │
-│   UI（React + TypeScript）                                             │
+│   UI（Vue 3 + Vite、WorkPilot と同じ）                                  │
 │   ┌──────────┐ ┌───────────────┐ ┌────────────┐ ┌─────────────────┐   │
 │   │ 取り込み  │ │ タイムライン   │ │ コーパス    │ │ スキル工房       │   │
 │   │ キュー    │ │ ビューア      │ │ 比較/検索   │ │ (提案→承認→評価) │   │
 │   └────┬─────┘ └──────┬────────┘ └─────┬──────┘ └───────┬─────────┘   │
 │        └───────────────┴─── localhost HTTP/WebSocket ───┴─────────────┘│
 │                                     │                                  │
-│   Engine（Python サイドカー、CLI でも単独実行可）                       │
+│   Engine（Node/TypeScript、CLI でも単独実行可。重い処理は外部プロセス） │
 │   ┌──────────────────────────────────────────────────────────────┐    │
 │   │ Job Queue → Ingest → Probe → Extract → Analyzers(並列) → Fuse │    │
 │   │                                      │                        │    │
 │   │        信号分析（決定的・ローカル）      意味分析（LLM/VLM・承認制） │    │
-│   │        ffmpeg / PySceneDetect /        Claude / GPT / Gemini   │    │
-│   │        whisper / librosa / CLIP        (サブスク CLI 経由)      │    │
+│   │        ffmpeg filters / Swift helpers   Claude / GPT / Gemini   │    │
+│   │        (Vision, SoundAnalysis, Speech)  (サブスク CLI 経由)      │    │
 │   └──────────────────────────────────────────────────────────────┘    │
 │                                     │                                  │
 │   Store                                                                │
@@ -95,6 +96,7 @@
 ### 2.1 Engine-first（最重要の方針）
 
 - Engine は **UI を知らない**。`videolab analyze <file>` のように CLI 単体でも動く。
+- Engine 本体は Node/TypeScript。重い処理は **外部プロセス**（ffmpeg、Swift ヘルパー、任意で Python スクリプト）に出し、JSON を stdout で受け取る。WorkPilot の `apple-stt` ヘルパーと同じ流儀。
 - UI は Engine の HTTP/WebSocket API だけを叩く。
 - WorkPilot アドオン化のとき、UI を WorkPilot のパネルに置き換え、Engine はそのまま同梱する。
 - Engine の公開面は3つだけに絞る: **API**（ジョブ投入/進捗/取得）、**ファイル形式**（Bundle / SKILL.md / OKF / OTIO）、**イベント**（進捗・完了・承認要求）。
@@ -113,14 +115,15 @@ Index    : SQLite に要約値、LanceDB にショット埋め込みを登録
 
 **分析器のインターフェース（統一）**
 
-```python
-class Analyzer(Protocol):
-    name: str            # "shots", "music", "ocr", ...
-    version: str         # 変えると再実行対象になる
-    requires: list[str]  # 依存する先行分析（"shots" など）
-    cost: Literal["local", "llm"]   # LLM を使うものは承認制・後回し
-
-    def run(self, ctx: Context) -> list[Event]: ...
+```ts
+interface Analyzer {
+  name: string            // "shots", "music", "ocr", ...
+  version: string         // 変えると再実行対象になる
+  requires: string[]      // 依存する先行分析（"shots" など）
+  cost: "local" | "llm"   // LLM を使うものは承認制・後回し
+  platforms?: ("darwin" | "linux")[]  // Swift ヘルパー依存のものは darwin のみ
+  run(ctx: Context): Promise<Event[]>
+}
 ```
 
 - **キャッシュ鍵 = (コンテンツハッシュ, 分析器名, 分析器バージョン)**。
@@ -294,29 +297,42 @@ metrics: { cut_f1: 0.71, music_entry_mae_ms: 340 }   # §4.4 の評価結果
 3. **コーパス**: 動画一覧＋指標の散布図（ASL × カット・オン・ビート率など）。類似ショット検索（埋め込み）。ジャンルごとの分布比較。
 4. **スキル工房**: パターン候補の一覧 → 蒸留実行 → diff 承認 → 評価スコアの推移。
 
-UI 技術は React + TypeScript。タイムライン描画は Canvas（WebGL 不要。帯とポリラインだけ）。
+UI 技術は Vue 3 + Vite（WorkPilot 本体と同じ。コンポーネントをそのままアドオンへ持ち込める）。タイムライン描画は Canvas（WebGL 不要。帯とポリラインだけ）。
 動画再生はブラウザ `<video>` でプロキシ（360p）を再生し、原本は必要時のみ。
 
 ---
 
 ## 6. 技術選定（Mac / Apple Silicon 前提）
 
+WorkPilot 本体は **Electron + Vue 3 + Vite、Node のみ（Python なし）、ffmpeg-static 同梱、Swift ヘルパー（apple-stt）同梱** で動いている（§13）。
+これに揃えるのが最も摩擦が少ない。Python は DMG に同梱せず、必要なら「任意の外部ヘルパー」に留める。
+
 | 層 | 選定 | 補足 |
 |---|---|---|
-| アプリ殻 | Electron または Tauri | **WorkPilot 本体と同じものに合わせる**のが最優先（アドオン化で揃える） |
-| Engine | Python 3.12 + FastAPI（サイドカー）、CLI は Typer | 動画/音声 ML の生態系が Python に集中しているため |
-| 動画 I/O | ffmpeg / ffprobe（videotoolbox でHWデコード） | PyAV 経由 |
-| ショット境界 | PySceneDetect → 精度が要れば TransNetV2 | ディゾルブに弱いので輝度カーブで補完 |
-| 埋め込み | SigLIP / CLIP（CoreML or MLX） | 類似ショット検索・ゼロショット分類 |
-| OCR | Apple Vision（pyobjc） | 無料・高速・日本語可。フォールバックに PaddleOCR |
-| 文字起こし | mlx-whisper（単語タイムスタンプ） | Apple Silicon で高速 |
-| 音響分類 | PANNs or YAMNet（音楽/発話/SFX）、CLAP（ゼロショット） | |
-| ビート/オンセット | librosa | |
-| ラウドネス | ffmpeg ebur128 | |
-| 保存 | SQLite + JSON ファイル + LanceDB | サーバー不要。WorkPilot の「ただのフォルダ」思想と一致 |
-| LLM 接続 | WorkPilot と同じ **公式 CLI 経由**（claude / codex / gemini） | API キー不要を維持。Engine は「LLM プロバイダ」を抽象化し、CLI 呼び出しを1実装にする |
+| アプリ殻 | **Electron + Vue 3 + Vite** | WorkPilot 本体と同一。アドオン化時にそのまま載る |
+| Engine | **Node/TypeScript**（CLI + ローカル HTTP/WS） | 外部プロセスを束ねるオーケストレータ。SQLite は better-sqlite3 |
+| 動画 I/O | ffmpeg（ffmpeg-static、videotoolbox でHWデコード） | ffprobe-static は arm64 で不備があるため、本体同様に ffmpeg の出力から取得 |
+| ショット境界 | ffmpeg `select=gt(scene,T)` + `showinfo` | 無料・高速・Linux でも検証可。ディゾルブは輝度/ヒストグラム連続性で補完。精度が足りなければ TransNetV2（CoreML 変換）を Swift ヘルパーで |
+| 無音・黒・静止 | ffmpeg `silencedetect` / `blackdetect` / `freezedetect` | 捨てる区間の検出に直結 |
+| ラウドネス | ffmpeg `ebur128` / `astats` | |
+| 文字起こし | **Apple Speech**（既存 apple-stt を流用。単語タイムスタンプあり） | 精度が要るときは whisper.cpp バイナリを選択式で |
+| OCR | **Apple Vision**（Swift ヘルパー新設） | 無料・高速・日本語可 |
+| 音響分類 | **Apple SoundAnalysis**（Swift ヘルパー新設。音楽/発話/拍手/笑い等 300 超のクラス） | BGM 入り・SFX 検出の主力。足りなければ YAMNet を CoreML で |
+| ビート/テンポ | aubio CLI（同梱可）または Swift ヘルパー内で実装 | Phase 0 の検証では Python（librosa）を参照実装として使ってよい |
+| 埋め込み | CLIP/SigLIP を **CoreML**（Swift ヘルパー）または onnxruntime-node | 類似ショット検索・ゼロショット分類 |
+| ベクトル索引 | sqlite-vec（SQLite 拡張）または LanceDB | サーバー不要 |
+| 保存 | SQLite + JSON ファイル | WorkPilot の「ただのフォルダ」思想と一致 |
+| LLM 接続 | WorkPilot と同じ **@anthropic-ai/claude-agent-sdk / @openai/codex-sdk** | API キー不要を維持。Engine は「LLM プロバイダ」を抽象化 |
 
----
+**Linux（この開発環境）で検証できるもの / Mac でしか動かないもの**
+
+| Linux で検証可 | Mac 実機のみ |
+|---|---|
+| ffmpeg 系すべて（ショット、無音、黒、ラウドネス、プロキシ、キーフレーム） | Apple Speech / Vision / SoundAnalysis の Swift ヘルパー |
+| Bundle スキーマ、SQLite、ジョブキュー、CLI、パターン抽出、評価スクリプト | CoreML 埋め込み |
+| whisper.cpp / onnxruntime（CPU） | videotoolbox HW デコード |
+
+Swift ヘルパー依存の分析器は `platforms: ["darwin"]` を宣言し、Linux では自動スキップされる（Bundle は欠けたトラックを許容する）。
 
 ## 7. 非機能要件（大量取り込みに耐える）
 
@@ -354,10 +370,11 @@ UI 技術は React + TypeScript。タイムライン描画は Canvas（WebGL 不
 ```
 videolab/
   packages/
-    engine/        Python: analyzers/, pipeline/, store/, api/, cli/, skills/
+    engine/        Node/TS: analyzers/, pipeline/, store/, api/, cli/
+    helpers/       Swift ヘルパー（vision-ocr, sound-classify）。apple-stt と同じビルド手順
     schema/        Bundle / recipe / SKILL frontmatter の JSON Schema と TS 型（単一ソース）
-    ui-core/       React コンポーネント（タイムライン、トラック帯、diff ビュー）
-    app/           専用アプリの殻（Electron/Tauri）
+    ui-core/       Vue コンポーネント（タイムライン、トラック帯、diff ビュー）
+    app/           専用アプリの殻（Electron + Vite）
   skills/          育てたスキル（Git 管理。差分レビューが自然にできる）
   knowledge/       分析レポート（Markdown）
   evals/           保留動画リストと評価スクリプト
@@ -493,8 +510,36 @@ videolab/
 
 ## 12. 最初に決めてほしいこと
 
-1. **WorkPilot 本体のアプリ殻**（Electron か Tauri か）。専用アプリは同じものに揃える。
+1. ~~WorkPilot 本体のアプリ殻~~ → **確認済み: Electron + Vue 3**（§13）。専用アプリも同じにする。
 2. **最初のジャンル**（ニュースを推奨。構造が定型で、評価が立てやすい）。
 3. **LLM 利用の既定**（オフ推奨。フェーズ0で消費量を測ってから決める）。
 4. **BGM/SFX の供給元**（Suno 生成を主にするか、ライセンス済みライブラリを契約するか。生成フローの ⑤ が決まらないと完成品が出ない）。
 5. **YouTube 取り込みの範囲**（お手本チャンネルを手動登録する方式から始めるのを推奨。権利面の確認後に自動収集へ）。
+
+---
+
+## 13. 実装準備メモ（2026-10-04 時点）
+
+### 13.1 WorkPilot 本体を読んで分かったこと（boice-kazuya/workpilot）
+
+| 項目 | 実態 | 設計への影響 |
+|---|---|---|
+| アプリ殻 | Electron 42 + Vue 3 + Vite、`electron/main.js` 約 5,000 行の単一ファイル | UI は Vue。アドオンは main.js を肥大化させず、Engine を別プロセスにして IPC を薄く保つ |
+| 言語 | Node のみ。Python は使っていない | Engine は Node。Python を DMG に入れない |
+| ffmpeg | `ffmpeg-static` 同梱。ffprobe-static は arm64 に x86 バイナリが入る不備があり未使用（ffmpeg のヘッダ出力で代替） | 同じ流儀で ffmpeg のみ使う |
+| ネイティブ補助 | `electron/helpers/apple-stt`（Swift、SFSpeechRecognizer、stdout に JSON、TCC 対策で自己再 spawn） | Vision OCR / SoundAnalysis も同じ型のヘルパーとして追加できる |
+| スキル | `Vault/WorkPilot/skills/<slug>/SKILL.md` + `.meta.json` + `resources/`、frontmatter は name / description / allowed-tools | 分析アプリの出力 SKILL.md はこの frontmatter を守る。recipe.json と evidence.json は `resources/` に置く |
+| タイムライン | `comp.video[]`（kind: clip/image/logo、localPath、in/out、duration）、音声は `auds[]`、fps 基準のフレーム位置で合成 | recipe.json → この comp 形式への変換器を1つ書けば「スキルで切る」が成立する |
+| 書き出し | `polish-video`: SFX ミックス（−14dB）、loudnorm（I=−16）、軽い eq/unsharp | ダッキング・BGM 入りの ramp はここを拡張する |
+| LLM | `@anthropic-ai/claude-agent-sdk`、`@openai/codex-sdk` | Engine の LLM プロバイダはこの 2 SDK に合わせる |
+
+### 13.2 開発環境（この Linux コンテナ）
+
+- Node 22 / npm / pnpm、Python 3.11 / uv、ffmpeg・ffprobe あり。npm と pip は使える（onnxruntime-node のようにバイナリを後から落とす package は要確認）。
+- x86_64 Linux なので Swift ヘルパー・CoreML・videotoolbox は動かない。ffmpeg 系と Engine 本体の検証はここで、Apple 系は Mac 実機で行う。
+
+### 13.3 着手前に残っている決定
+
+1. **コードの置き場所**: 配布専用の `workpilot-releases` には置けない。候補は (a) 新規リポジトリ `videolab`、(b) `workpilot` リポジトリ内の `packages/videolab/`。アドオン化を見据えると (b) が近道だが、分析アプリを独立して育てるなら (a)。
+2. **検証用の動画**: Phase 0 に 20 本ほど必要。ユーザー提供か、権利が明確なもの（Big Buck Bunny 等のオープン素材、自分で撮ったスマホ動画）から始める。
+3. 既出: 最初のジャンル、LLM 既定、BGM/SFX 供給元、YouTube 取り込み範囲（§12）。
